@@ -1,0 +1,35 @@
+# https://EditorConfig.org
+
+root = true
+
+# Unix-style newlines with a newline ending every file
+[*]
+end_of_line = lf
+charset = utf-8
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Markdown Files - trailing whitespace is significant, leave it in...
+[*.{md,mkd,markdown}]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+# Configuration Files
+[*.{json,xml,yml,yaml}]
+indent_size = 4
+
+# Web Files
+[*.{js,ts,css,scss,less}]
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{htm,html}]
+indent_size = 4
+
+[Makefile]
+indent_style = tab
+
+[*.{sh,bash}]
+end_of_line = lf
