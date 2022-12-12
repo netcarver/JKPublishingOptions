@@ -14,7 +14,6 @@ namespace ProcessWire;
  * - validateDates()
  * - runJkPublishingOptions()
  * - beforePageSave()
- * - afterPageSaved()
  * - addRemovePublishingFields()
  * - disableUninstall()
  * - getTemplates()
@@ -168,18 +167,6 @@ class JkPublishingOptions extends WireData implements Module, ConfigurableModule
         }
     }
 
-    /**
-     * Method runs after page is saved
-     * Set value of publish_from field to null if page has status unpublished
-     * @param HookEvent $event
-     */
-    protected function afterPageSaved(HookEvent $event) {
-        $page = $event->arguments(0);
-        if ($page->is(Page::statusUnpublished)) {
-            $page->jk_publish_from = NULL; // remove value
-            $page->save('jk_publish_from');
-        }
-    }
 
     /**
      * Add or remove publishing fields from templates after saving the module config page
