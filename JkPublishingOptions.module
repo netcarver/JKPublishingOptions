@@ -156,20 +156,28 @@ class JkPublishingOptions extends WireData implements Module, ConfigurableModule
     protected function runJkPublishingOptions() {
 
         $templateSelector = $this->JkpublishingOptionsTemplates ? 'template=' . implode('|', $this->JkpublishingOptionsTemplates) . ',' : '';
-        $unpublishedPages = wire("pages")->find("status=unpublished,has_parent!=" . wire("config")->adminRootPageID . ",has_parent!=" . wire("config")->trashPageID . ",$templateSelector(jk_publish_from<=now, jk_publish_until>=''),(jk_publish_from<=now, jk_publish_until>=now)");
-        $publishedPages = wire("pages")->find("status=published,has_parent!=" . wire("config")->adminRootPageID . ",has_parent!=" . wire("config")->trashPageID . ",$templateSelector(jk_publish_from>=now, jk_publish_until>=now),(jk_publish_from>=now, jk_publish_until<=now),(jk_publish_from>=now, jk_publish_until=''),(jk_publish_from<=now, jk_publish_until<=now)");
+        $unpublishedPages = wire("pages")->find("status=unpublished, has_parent!=".wire("config")->adminRootPageID.",has_parent!=".wire("config")->trashPageID.",$templateSelector(jk_publish_from<=now, jk_publish_until=''),(jk_publish_from<=now, jk_publish_until>=now)");
+        $publishedPages   = wire("pages")->find("status=published,   has_parent!=".wire("config")->adminRootPageID.",has_parent!=".wire("config")->trashPageID.",$templateSelector(jk_publish_from>=now, jk_publish_until>=now),(jk_publish_from>=now, jk_publish_until<=now),(jk_publish_from>=now, jk_publish_until=''),(jk_publish_from<=now, jk_publish_until<=now),(jk_publish_from='', jk_publish_until<=now)");
 
         $results = $unpublishedPages->import($publishedPages);
+        $server_ts = time();
+        $server_now = date("c", $server_ts);
+
+        /* bd(compact('templateSelector', 'results', 'server_now', 'server_ts', 'publishedPages'), "CRON HOOK"); */
 
         foreach ($results as $p) {
             $p->setOutputFormatting(false);
-            if ($p->isUnpublished()) {
+            $isUnpublished = $p->isUnpublished();
+            if ($isUnpublished) {
                 $p->removeStatus(Page::statusUnpublished);
+                $p->save(['quiet' => true]);
+                $this->log("Published $p->template $p->id '$p->title' via LazyCron", ['url' => $p->editUrl]);
             }
-            else {
+            else if (!$isUnpublished) {
                 $p->addStatus(Page::statusUnpublished);
+                $p->save(['quiet' => true]);
+                $this->log("Unpublished $p->template $p->id '$p->title' via LazyCron", ['url' => $p->editUrl]);
             }
-            $p->save();
         }
     }
 
@@ -179,17 +187,31 @@ class JkPublishingOptions extends WireData implements Module, ConfigurableModule
      * Set page status to unpublished or remove unpublished status depending if date range is out of date or not
      */
     protected function beforePageSave(HookEvent $event) {
-        $page = $event->arguments(0);
+        $page  = $event->arguments(0);
+        $from  = $page->jk_publish_from;
+        $until = $page->jk_publish_until;
 
-        if (($page->jk_publish_from) && ($page->jk_publish_from > time()) || ($page->jk_publish_until) && ($page->jk_publish_until < time())) {
+        if ($from == '' && $until == '') return;
+
+        $server_ts = time();
+        $before_from  = ($from  && ($server_ts < $from));
+        $after_from   = ($from  && ($server_ts >=$from))  || ($from  == ''); // Include open lower bound
+        $before_until = ($until && ($server_ts <=$until)) || ($until == ''); // Include open upper bound
+        $after_until  = ($until && ($server_ts > $until));
+
+        if ($before_from || $after_until) {
+            if (!$page->is(Page::statusUnpublished)) {
             $page->addStatus(Page::statusUnpublished);
-            $page->jk_publish_from = NULL;
+                $msg = "Unpublished $page->template $page->id '$page->title' on save as we are outside the auto-publish window. If you want to publish this page, expand or delete the auto-publish window.";
+                $this->log($msg, ['url' => $page->editUrl]);
+                $this->session->warning($msg);
         }
-        else {
-            if (!$page->jk_publish_from) {
-                // do not remove unpublished status automatically, but set current time as publish from dateTime
-                $page->jk_publish_from = time();
             }
+        if ($after_from && $before_until && $page->is(Page::statusUnpublished)) {
+            $page->removeStatus(Page::statusUnpublished);
+            $msg = "Published $page->template $page->id '$page->title' on save as we are inside the auto-publish window. If you want to unpublish this page, restrict or delete the auto-publish window.";
+            $this->log($msg, ['url' => $page->editUrl]);
+            $this->session->warning($msg);
         }
     }
 
