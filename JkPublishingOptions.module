@@ -87,10 +87,36 @@ class JkPublishingOptions extends WireData implements Module, ConfigurableModule
         $this->addHook("LazyCron::{$this->input_croninterval}", $this, 'runJkPublishingOptions');
         $this->addHookAfter('InputfieldDatetime::processInput', $this, 'validateDates');
         $this->addHookBefore('Pages::save', $this, 'beforePageSave');
-        $this->addHookAfter('Pages::saved', $this, 'afterPageSaved');
         $this->addHookBefore('ProcessModule::executeEdit', $this, 'disableUninstall');
         $this->addHookBefore('ProcessModule::executeEdit', $this, 'addRemovePublishingFields');
         $this->addHookAfter('ProcessLanguage::processCSV', $this, 'addTranslationsToFields');
+        $this->addHookBefore('InputfieldFieldsetOpen::render', $this, 'dynamicFieldsetUpdates');
+    }
+
+
+    protected function getAutoPublishWindowDesc(Page $p) {
+        if ($p->jk_publish_until && $p->jk_publish_until < time()) return "has passed";
+        if ($p->jk_publish_from  && $p->jk_publish_from  > time()) return "is active and in the future";
+        if ($p->jk_publish_until == '' && $p->jk_publish_from == '') return "is inactive";
+        if ($p->jk_publish_from  && $p->jk_publish_from  <= time() && $p->jk_publish_until == '') return "is open indefinitely";
+        return "is open";
+    }
+
+    protected function dynamicFieldsetUpdates($event) {
+        $field = $event->object;
+        if ($field->name == 'jk_publish_open') {
+            $page = $event->page;
+            if ($page->name == 'edit' && $page->template == 'admin') {
+                $server_time = date("Y-m-d H:i");
+                $field->notes .= $this->_("\nTriggers relative to server time in ".date("e") . " (GMT" . date("P") . ")");
+                $p = $this->wire()->modules->processPageEdit->getPage();
+                $desc = $this->getAutoPublishWindowDesc($p);
+                $field->description = "Page is currently " . ($p->is(Page::statusUnpublished) ? "Unpublished" : "Published") . " and the auto-publish window $desc.\nEdit started at server time $server_time.";
+                if ($p->jk_publish_from == '' && $p->jk_publish_until == '') {
+                    $field->collapsed = Inputfield::collapsedYes;
+                }
+            }
+        }
     }
 
     /**
@@ -360,7 +386,8 @@ class JkPublishingOptions extends WireData implements Module, ConfigurableModule
             $opener = new Field();
             $opener->type = new FieldtypeFieldsetOpen();
             $opener->name = "jk_publish_open";
-            $opener->label = $this->_('Publishing options');
+            $opener->label = $this->_('Auto Publish/Unpublish Window');
+            $opener->notes = $this->_("Enter either a from date, or an until date to create an unbounded publishing window. Set both to define a bounded publishing window. LazyCron will take care of publishing or unpublishing as the boundaries are crossed.\nLeave both fields blank to disable the auto-publish feature.");
             $opener->save();
 
             $closer = new Field();
